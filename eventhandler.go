@@ -1,6 +1,7 @@
 package sseio
 
 import (
+	"errors"
 	"sync"
 )
 
@@ -8,8 +9,6 @@ type EventHandler interface {
 	SendMessage(roomId string, message interface{})
 	AddClientToRoom(roomId string, clientId string)
 	RemoveClientFromRoom(roomId string, clientId string)
-	EnableEvents()
-	Events() chan Event
 }
 
 type room struct {
@@ -25,6 +24,19 @@ func SetFetchFunc(fetch Fetch) HandlerOptions {
 	}
 }
 
+func SetGetRoomIdFunc(getRoomId GetRoomId) HandlerOptions {
+	return func(e *eventHandler) {
+		e.GetRoomId = getRoomId
+	}
+}
+
+func EnableHandlerEvent(eventChan chan Event) HandlerOptions {
+	return func(e *eventHandler) {
+		e.eventEnable = true
+		e.eventChan = eventChan
+	}
+}
+
 type eventHandler struct {
 	eventEnable bool
 	event       string
@@ -36,12 +48,21 @@ type eventHandler struct {
 	Fetch     Fetch
 }
 
-func NewEventHandler(event string, manager Manager, getRoomId GetRoomId) EventHandler {
-	return &eventHandler{
-		event:     event,
-		manager:   manager,
-		GetRoomId: getRoomId,
+func NewEventHandler(event string, manager Manager, opts ...HandlerOptions) (EventHandler, error) {
+	e := &eventHandler{
+		event:   event,
+		manager: manager,
 	}
+
+	for _, opt := range opts {
+		opt(e)
+	}
+
+	if e.GetRoomId == nil {
+		return nil, errors.New("HandlerOptions \"GetRoomId\" is required")
+	}
+
+	return e, nil
 }
 
 func (e *eventHandler) SendMessage(roomId string, data interface{}) {
@@ -105,12 +126,4 @@ func (e *eventHandler) RemoveClientFromRoom(roomId string, clientId string) {
 
 		room.lock.Unlock()
 	}
-}
-
-func (e *eventHandler) EnableEvents() {
-	e.eventEnable = true
-}
-
-func (e *eventHandler) Events() chan Event {
-	return e.eventChan
 }
