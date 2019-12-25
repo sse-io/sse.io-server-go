@@ -5,8 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/r3labs/sse"
 	. "github.com/smartystreets/goconvey/convey"
+	"io/ioutil"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +28,6 @@ type TestMessages []struct {
 	give  interface{}
 	want  []byte
 }
-
-var httpAddr = flag.String("http.addr", fmt.Sprintf(":%d", PORT), "HTTP listen address")
 
 func genUrl(events []string, guid string, queryParams map[string]string) string {
 	var params []string
@@ -95,37 +96,68 @@ func assertClientReceiveMessageWithMutipleEvents(c C, guid string, events []stri
 	return done
 }
 
-var eventHandler1 EventHandler
-var eventHandler2 EventHandler
+var (
+	testSSEIO     SSEIO
+	eventHandler1 EventHandler
+	eventHandler2 EventHandler
+	httpAddr      = flag.String("http.addr", fmt.Sprintf(":%d", PORT), "HTTP listen address")
+)
 
-func init() {
-	sseio := NewSSEIO(TestPath, EnableEvent())
-	eventHandler1 = sseio.RegisterEventHandler(Event1, func(context Context) string {
-		return context.Params["guid"]
+func closeSSEIO() {
+	// force to close
+	testSSEIO.(*sseio).server.Close()
+}
+
+func initAttacheToHttpServerMode() {
+	testSSEIO = NewSSEIO()
+	r := mux.NewRouter()
+	r.Handle(TestPath, testSSEIO).Methods("GET")
+	r.HandleFunc("/hello", func(resp http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(resp, "hello world")
 	})
-	eventHandler2 = sseio.RegisterEventHandler(Event2, func(context Context) string {
-		return context.Params["guid"]
-	}, SetFetchFunc(func(context Context) interface{} {
-		query := context.Query
-		if len(query["fetch"]) != 0 {
-			return "fetch message"
-		}
 
-		return nil
-	}))
 	go func() {
-		for event := range sseio.ReceiveEvent() {
+		err := http.ListenAndServe(*httpAddr, r)
+		fmt.Println("err", err)
+	}()
+}
+
+func initStandAloneMode() {
+	testSSEIO = NewSSEIO(SetPath(TestPath), EnableEvent())
+	go func() {
+		for event := range testSSEIO.ReceiveEvent() {
 			fmt.Println(event)
 		}
 	}()
 
 	go func() {
-		sseio.Listen(*httpAddr)
+		testSSEIO.Listen(*httpAddr)
 	}()
 }
 
 func TestSSEIO(t *testing.T) {
-	Convey("standalone", t, func() {
+	Convey("start standalone sseio server", t, func() {
+		initStandAloneMode()
+
+		eventHandler1, _ = testSSEIO.RegisterEventHandler(Event1,
+			SetGetRoomIdFunc(func(context Context) string {
+				return context.Params["guid"]
+			}))
+		eventHandler2, _ = testSSEIO.RegisterEventHandler(Event2,
+			SetGetRoomIdFunc(func(context Context) string {
+				return context.Params["guid"]
+			}),
+			SetFetchFunc(func(context Context) interface{} {
+				query := context.Query
+				if len(query["fetch"]) != 0 {
+					return "fetch message"
+				}
+
+				return nil
+			}))
+	})
+
+	Convey("in standalone mode", t, func() {
 		Convey("single event", func() {
 			Convey("should send message in any type", func(c C) {
 				guid := uuid.New().String()
@@ -245,6 +277,44 @@ func TestSSEIO(t *testing.T) {
 
 				<-done
 			})
+		})
+	})
+
+	Convey("attaches to a http server", t, func() {
+		closeSSEIO()
+		initAttacheToHttpServerMode()
+
+		eventHandler1, _ = testSSEIO.RegisterEventHandler(Event1,
+			SetGetRoomIdFunc(func(context Context) string {
+				return context.Params["guid"]
+			}))
+	})
+
+	Convey("in attachment mode", t, func() {
+		Convey("can http server also handle requests expect for sse", func() {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d/hello", PORT))
+			So(err, ShouldBeNil)
+			So(resp.StatusCode, ShouldEqual, http.StatusOK)
+			bodyBytes, err := ioutil.ReadAll(resp.Body)
+			So(string(bodyBytes), ShouldEqual, "hello world")
+		})
+
+		Convey("can handle sse message as well", func(c C) {
+			guid := uuid.New().String()
+			messages := TestMessages{
+				{
+					give: "hello sseio",
+					want: []byte("hello sseio"),
+				},
+			}
+			done := assertClientReceiveMessage(c, guid, Event1, messages)
+			time.Sleep(time.Millisecond * 100)
+
+			for _, msg := range messages {
+				eventHandler1.SendMessage(guid, msg.give)
+			}
+
+			<-done
 		})
 	})
 }
