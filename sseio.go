@@ -1,6 +1,7 @@
 package sseio
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -27,11 +28,18 @@ func EnableEvent() Options {
 	}
 }
 
+func SetPath(path string) Options {
+	return func(s *sseio) {
+		s.path = path
+	}
+}
+
 type SSEIO interface {
-	RegisterEventHandler(event string, getRoomId GetRoomId, opts ...HandlerOptions) EventHandler
-	HttpHandler() http.Handler
+	RegisterEventHandler(event string, opts ...HandlerOptions) (EventHandler, error)
 	Listen(addr string) error
 	ReceiveEvent() chan Event
+	Shutdown(context context.Context) error
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 type sseio struct {
@@ -39,12 +47,14 @@ type sseio struct {
 	path        string
 	enableEvent bool
 	eventChan   chan Event
+
+	server *http.Server
 }
 
-func NewSSEIO(path string, opts ...Options) SSEIO {
+func NewSSEIO(opts ...Options) SSEIO {
 	manager := NewManager()
 	s := &sseio{
-		path:      path,
+		path:      "/sseio",
 		manager:   manager,
 		eventChan: make(chan Event, 1),
 	}
@@ -56,7 +66,7 @@ func NewSSEIO(path string, opts ...Options) SSEIO {
 	return s
 }
 
-func (s *sseio) HttpHandler() http.Handler {
+func (s *sseio) httpHandler() http.Handler {
 	r := mux.NewRouter()
 	r.Handle(s.path, s).Methods("GET")
 
@@ -64,22 +74,30 @@ func (s *sseio) HttpHandler() http.Handler {
 }
 
 func (s *sseio) Listen(addr string) error {
-	return http.ListenAndServe(addr, s.HttpHandler())
+	server := &http.Server{Addr: addr, Handler: s.httpHandler()}
+	s.server = server
+	return server.ListenAndServe()
+}
+
+func (s *sseio) Shutdown(context context.Context) error {
+	return s.server.Shutdown(context)
 }
 
 func (s *sseio) ReceiveEvent() chan Event {
 	return s.eventChan
 }
 
-func (s *sseio) RegisterEventHandler(event string, getRoomId GetRoomId, opts ...HandlerOptions) EventHandler {
-	handler := NewEventHandler(event, s.manager, getRoomId)
+func (s *sseio) RegisterEventHandler(event string, opts ...HandlerOptions) (EventHandler, error) {
+	if s.enableEvent {
+		opts = append(opts, EnableHandlerEvent(s.eventChan))
+	}
+	handler, err := NewEventHandler(event, s.manager, opts...)
+	if err != nil {
+		return nil, err
+	}
 	s.manager.addEventHandler(event, handler)
 
-	for _, opt := range opts {
-		opt(handler.(*eventHandler))
-	}
-
-	return handler
+	return handler, nil
 }
 
 func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -109,15 +127,15 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	messageChan := make(chan *Message, 1)
 	client := s.manager.addClient(clientId, messageChan)
 
-	context := Context{
+	ctx := Context{
 		Params: mux.Vars(r),
 		Query:  r.URL.Query(),
 	}
 	for _, event := range events {
-		eventHandler := s.manager.clientBindEventHandler(event, client, context)
+		eventHandler := s.manager.clientBindEventHandler(event, client, ctx)
 		if eventHandler != nil && eventHandler.Fetch != nil {
 			go func(event string) {
-				data := eventHandler.Fetch(context)
+				data := eventHandler.Fetch(ctx)
 				client.SendMessage(event, data)
 			}(event)
 		}
@@ -126,7 +144,7 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.enableEvent {
 		s.eventChan <- &ConnectionCreateEvent{
 			ClientId: clientId,
-			Context:  context,
+			Context:  ctx,
 		}
 	}
 
@@ -149,12 +167,12 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		// client 端关闭
+		// connection closed by client
 		case <-r.Context().Done():
 			logrus.Debug("client close")
 			return
 		case data := <-messageChan:
-			// server端关闭, chan 已经被 closed
+			// chan has been closed
 			if data == nil {
 				logrus.Debug("server close")
 				return
