@@ -54,7 +54,7 @@ func (m *manager) removeClient(clientId string) {
 			continue
 		}
 
-		v.(EventHandler).RemoveClientFromRoom(room.id, clientId)
+		v.(EventHandler).removeClientFromRoom(room.id, clientId)
 	}
 	client.Close()
 	m.clients.Delete(clientId)
@@ -68,7 +68,7 @@ func (m *manager) clientBindEventHandler(event string, client Client, context Co
 
 	eventHandler := v.(*eventHandler)
 	roomId := eventHandler.GetRoomId(context)
-	eventHandler.AddClientToRoom(roomId, client.GetId())
+	eventHandler.addClientToRoom(roomId, client.GetId())
 	client.AddRoom(event, roomId)
 	return eventHandler
 }

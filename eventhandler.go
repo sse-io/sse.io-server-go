@@ -7,8 +7,9 @@ import (
 
 type EventHandler interface {
 	SendMessage(roomId string, message interface{})
-	AddClientToRoom(roomId string, clientId string)
-	RemoveClientFromRoom(roomId string, clientId string)
+
+	addClientToRoom(roomId string, clientId string)
+	removeClientFromRoom(roomId string, clientId string)
 }
 
 type room struct {
@@ -86,7 +87,7 @@ func (e *eventHandler) SendMessage(roomId string, data interface{}) {
 	room.lock.RUnlock()
 }
 
-func (e *eventHandler) AddClientToRoom(roomId string, clientId string) {
+func (e *eventHandler) addClientToRoom(roomId string, clientId string) {
 	v, ok := e.rooms.LoadOrStore(roomId, &room{
 		clients: map[string]interface{}{
 			clientId: nil,
@@ -108,7 +109,7 @@ func (e *eventHandler) AddClientToRoom(roomId string, clientId string) {
 	room.lock.Unlock()
 }
 
-func (e *eventHandler) RemoveClientFromRoom(roomId string, clientId string) {
+func (e *eventHandler) removeClientFromRoom(roomId string, clientId string) {
 	v, ok := e.rooms.Load(roomId)
 	if ok {
 		room := v.(*room)
