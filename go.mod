@@ -1,4 +1,4 @@
-module sseio
+module github.com/sse-io/sse.io-server-go
 
 go 1.13
 
