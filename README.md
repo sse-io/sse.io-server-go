@@ -17,7 +17,7 @@ httpAddr := flag.String("http.addr", fmt.Sprintf(":%d", 9001), "HTTP listen addr
 path := "/files/:guid/pull"
 server := sseio.NewSSEIO(sseio.SetPath(path))
 
-eventHandler1, _ := server.RegisterEventHandler("event",
+eventHandler, _ := server.RegisterEventHandler("event",
     sseio.SetGetRoomIdFunc(func(context sseio.Context) string {
         return context.Params["guid"]
     }),
@@ -27,12 +27,12 @@ go func() {
     server.Listen(*httpAddr)
 }()
 
-eventHandler1.SendMessage("guid1", "hello sseio")
+eventHandler.SendMessage("guid1", "hello sseio")
 ```
 
 ### attaching to your http server
 
-**you should install "github.com/gorilla/mux" first**.
+you should install **"github.com/gorilla/mux"** first.
 
 ```go
 path := "/files/:guid/pull"
