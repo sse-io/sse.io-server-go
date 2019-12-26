@@ -1,5 +1,7 @@
 # SSE-IO For Golang
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/sse-io/sse.io-server-go)](https://goreportcard.com/report/github.com/sse-io/sse.io-server-go)[![GoDoc](https://godoc.org/github.com/sse-io/sse.io-server-go?status.svg)](https://godoc.org/github.com/sse-io/sse.io-server-go)
+
 Golang server for SSE-IO.
 
 ## Install
@@ -50,3 +52,6 @@ go func() {
     http.ListenAndServe(*httpAddr, r)
 }()
 ```
+
+## Documents
+[GoDoc](https://godoc.org/github.com/sse-io/sse.io-server-go)
