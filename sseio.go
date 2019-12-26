@@ -57,7 +57,7 @@ type sseio struct {
 	server *http.Server
 }
 
-// NewSSEIO will return pointer to sseio
+// NewSSEIO will return pointer to sseio that implements the SSEIO
 func NewSSEIO(opts ...Options) SSEIO {
 	manager := newManager()
 	s := &sseio{
@@ -184,7 +184,7 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if data.event == PingEvent {
+			if data.event == pingEvent {
 				fmt.Fprint(w, pingData)
 			} else {
 				str, ok := data.data.(string)
