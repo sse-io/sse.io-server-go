@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const PingEvent = "ping"
+const pingEvent = "ping"
 
 type message struct {
 	event string
@@ -80,7 +80,7 @@ func (c *client) startHeartbeat() {
 		for {
 			select {
 			case <-timer.C:
-				c.sendMessage(PingEvent, nil)
+				c.sendMessage(pingEvent, nil)
 			}
 		}
 	}()

@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 )
 
-const PingData = `:\n:\n:\n\n`
+const pingData = `:\n:\n:\n\n`
 
 // Context which contains Params for route variables and Query for url query parameters
 type Context struct {
@@ -24,7 +24,7 @@ type fetch func(context Context) interface{}
 // Options defines option functions to configure the sseio.
 type Options func(s *sseio)
 
-// When EnableEvent is set. The Event channel returned by Events method will receive triggered events.
+// EnableEvent enable the triggered events to be sent the event channel returned by Events method.
 func EnableEvent() Options {
 	return func(s *sseio) {
 		s.enableEvent = true
@@ -185,7 +185,7 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if data.event == PingEvent {
-				fmt.Fprint(w, PingData)
+				fmt.Fprint(w, pingData)
 			} else {
 				str, ok := data.data.(string)
 				if ok {
