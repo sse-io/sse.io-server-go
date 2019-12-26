@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// EventHandler interface
 type EventHandler interface {
 	SendMessage(roomId string, message interface{})
 
@@ -17,21 +18,30 @@ type room struct {
 	clients map[string]interface{}
 }
 
+// HandlerOptions defines option functions to configure the eventHandler.
 type HandlerOptions func(e *eventHandler)
 
-func SetFetchFunc(fetch Fetch) HandlerOptions {
+// SetFetchFunc will be triggered once a client is connected.
+// And the returned data will be send to the client, and nil data will be ignored.
+//
+// It's optional.
+func SetFetchFunc(fetch fetch) HandlerOptions {
 	return func(e *eventHandler) {
-		e.Fetch = fetch
+		e.fetch = fetch
 	}
 }
 
-func SetGetRoomIdFunc(getRoomId GetRoomId) HandlerOptions {
+// SetGetRoomIdFunc sets the getRoomId function to determine
+// which room the incoming client belongs to.
+//
+// It's required!
+func SetGetRoomIdFunc(getRoomId getRoomId) HandlerOptions {
 	return func(e *eventHandler) {
-		e.GetRoomId = getRoomId
+		e.getRoomId = getRoomId
 	}
 }
 
-func EnableHandlerEvent(eventChan chan Event) HandlerOptions {
+func enableHandlerEvent(eventChan chan Event) HandlerOptions {
 	return func(e *eventHandler) {
 		e.eventEnable = true
 		e.eventChan = eventChan
@@ -43,13 +53,14 @@ type eventHandler struct {
 	event       string
 	eventChan   chan Event
 	rooms       sync.Map
-	manager     Manager
+	manager     *manager
 
-	GetRoomId GetRoomId
-	Fetch     Fetch
+	getRoomId getRoomId
+	fetch     fetch
 }
 
-func NewEventHandler(event string, manager Manager, opts ...HandlerOptions) (EventHandler, error) {
+// NewEventHandler will return pointer to eventHandler
+func NewEventHandler(event string, manager *manager, opts ...HandlerOptions) (EventHandler, error) {
 	e := &eventHandler{
 		event:   event,
 		manager: manager,
@@ -59,13 +70,14 @@ func NewEventHandler(event string, manager Manager, opts ...HandlerOptions) (Eve
 		opt(e)
 	}
 
-	if e.GetRoomId == nil {
+	if e.getRoomId == nil {
 		return nil, errors.New("HandlerOptions \"GetRoomId\" is required")
 	}
 
 	return e, nil
 }
 
+// SendMessage sends data to all the clients in room
 func (e *eventHandler) SendMessage(roomId string, data interface{}) {
 	v, ok := e.rooms.Load(roomId)
 	if !ok {
@@ -81,7 +93,7 @@ func (e *eventHandler) SendMessage(roomId string, data interface{}) {
 	for clientId := range room.clients {
 		client := e.manager.getClient(clientId)
 		if client != nil {
-			client.SendMessage(e.event, data)
+			client.sendMessage(e.event, data)
 		}
 	}
 	room.lock.RUnlock()

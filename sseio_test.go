@@ -117,15 +117,14 @@ func initAttacheToHttpServerMode() {
 	})
 
 	go func() {
-		err := http.ListenAndServe(*httpAddr, r)
-		fmt.Println("err", err)
+		http.ListenAndServe(*httpAddr, r)
 	}()
 }
 
 func initStandAloneMode() {
 	testSSEIO = NewSSEIO(SetPath(TestPath), EnableEvent())
 	go func() {
-		for event := range testSSEIO.ReceiveEvent() {
+		for event := range testSSEIO.Events() {
 			fmt.Println(event)
 		}
 	}()

@@ -12,38 +12,44 @@ import (
 
 const PingData = `:\n:\n:\n\n`
 
+// Context which contains Params for route variables and Query for url query parameters
 type Context struct {
 	Params map[string]string
 	Query  map[string][]string
 }
 
-type GetRoomId func(context Context) string
-type Fetch func(context Context) interface{}
+type getRoomId func(context Context) string
+type fetch func(context Context) interface{}
 
+// Options defines option functions to configure the sseio.
 type Options func(s *sseio)
 
+// When EnableEvent is set. The Event channel returned by Events method will receive triggered events.
 func EnableEvent() Options {
 	return func(s *sseio) {
 		s.enableEvent = true
 	}
 }
 
+// SetPath set the url path for sseio
 func SetPath(path string) Options {
 	return func(s *sseio) {
 		s.path = path
 	}
 }
 
+// SSEIO interface.
+// It implements http.Handler interface.
 type SSEIO interface {
 	RegisterEventHandler(event string, opts ...HandlerOptions) (EventHandler, error)
 	Listen(addr string) error
-	ReceiveEvent() chan Event
+	Events() chan Event
 	Shutdown(context context.Context) error
 	ServeHTTP(w http.ResponseWriter, r *http.Request)
 }
 
 type sseio struct {
-	manager     Manager
+	manager     *manager
 	path        string
 	enableEvent bool
 	eventChan   chan Event
@@ -51,8 +57,9 @@ type sseio struct {
 	server *http.Server
 }
 
+// NewSSEIO will return pointer to sseio
 func NewSSEIO(opts ...Options) SSEIO {
-	manager := NewManager()
+	manager := newManager()
 	s := &sseio{
 		path:      "/sseio",
 		manager:   manager,
@@ -66,30 +73,28 @@ func NewSSEIO(opts ...Options) SSEIO {
 	return s
 }
 
-func (s *sseio) httpHandler() http.Handler {
-	r := mux.NewRouter()
-	r.Handle(s.path, s).Methods("GET")
-
-	return r
-}
-
+// Listen calls the ListenAndServe method on http.Server.
+// It's used for standalone mode. The server only handles requests for sseio
 func (s *sseio) Listen(addr string) error {
 	server := &http.Server{Addr: addr, Handler: s.httpHandler()}
 	s.server = server
 	return server.ListenAndServe()
 }
 
+// Shutdown calls the Shutdown method on http.Server.
 func (s *sseio) Shutdown(context context.Context) error {
 	return s.server.Shutdown(context)
 }
 
-func (s *sseio) ReceiveEvent() chan Event {
+// Events returns the Events channel (if enabled)
+func (s *sseio) Events() chan Event {
 	return s.eventChan
 }
 
+// RegisterEventHandler creates an eventHandler for the event
 func (s *sseio) RegisterEventHandler(event string, opts ...HandlerOptions) (EventHandler, error) {
 	if s.enableEvent {
-		opts = append(opts, EnableHandlerEvent(s.eventChan))
+		opts = append(opts, enableHandlerEvent(s.eventChan))
 	}
 	handler, err := NewEventHandler(event, s.manager, opts...)
 	if err != nil {
@@ -100,6 +105,7 @@ func (s *sseio) RegisterEventHandler(event string, opts ...HandlerOptions) (Even
 	return handler, nil
 }
 
+// ServeHTTP implements ServeHTTP(ResponseWriter, *Request) to handle requests for sseio
 func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientIds, ok := r.URL.Query()["clientId"]
 	if !ok || len(clientIds) < 1 {
@@ -124,7 +130,7 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	messageChan := make(chan *Message, 1)
+	messageChan := make(chan *message, 1)
 	client := s.manager.addClient(clientId, messageChan)
 
 	ctx := Context{
@@ -133,10 +139,10 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, event := range events {
 		eventHandler := s.manager.clientBindEventHandler(event, client, ctx)
-		if eventHandler != nil && eventHandler.Fetch != nil {
+		if eventHandler != nil && eventHandler.fetch != nil {
 			go func(event string) {
-				data := eventHandler.Fetch(ctx)
-				client.SendMessage(event, data)
+				data := eventHandler.fetch(ctx)
+				client.sendMessage(event, data)
 			}(event)
 		}
 	}
@@ -178,21 +184,28 @@ func (s *sseio) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if data.Event == PingEvent {
+			if data.event == PingEvent {
 				fmt.Fprint(w, PingData)
 			} else {
-				str, ok := data.Data.(string)
+				str, ok := data.data.(string)
 				if ok {
-					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", data.Event, str)
+					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", data.event, str)
 				} else {
 					var byteData []byte
-					byteData, _ = json.Marshal(data.Data)
-					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", data.Event, byteData)
+					byteData, _ = json.Marshal(data.data)
+					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", data.event, byteData)
 				}
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+func (s *sseio) httpHandler() http.Handler {
+	r := mux.NewRouter()
+	r.Handle(s.path, s).Methods("GET")
+
+	return r
 }
 
 func errorHandler(w http.ResponseWriter, code int, msg string) {

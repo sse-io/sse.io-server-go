@@ -7,18 +7,9 @@ import (
 
 const PingEvent = "ping"
 
-type Message struct {
-	Event string
-	Data  interface{}
-}
-
-type Client interface {
-	IsDying() bool
-	Close()
-	SendMessage(event string, data interface{})
-	AddRoom(event string, roomId string)
-	GetRooms() []*roomInfo
-	GetId() string
+type message struct {
+	event string
+	data  interface{}
 }
 
 type roomInfo struct {
@@ -29,13 +20,13 @@ type roomInfo struct {
 type client struct {
 	id             string
 	dying          bool
-	messageChan    chan *Message
+	messageChan    chan *message
 	channelLock    sync.RWMutex
 	rooms          []*roomInfo
 	heartbeatTimer *time.Timer
 }
 
-func NewClient(id string, messageChan chan *Message) Client {
+func newClient(id string, messageChan chan *message) *client {
 	c := &client{
 		id:          id,
 		messageChan: messageChan,
@@ -45,11 +36,11 @@ func NewClient(id string, messageChan chan *Message) Client {
 	return c
 }
 
-func (c *client) GetId() string {
+func (c *client) getId() string {
 	return c.id
 }
 
-func (c *client) Close() {
+func (c *client) close() {
 	c.channelLock.Lock()
 	defer c.channelLock.Unlock()
 	if !c.dying {
@@ -58,28 +49,28 @@ func (c *client) Close() {
 	}
 }
 
-func (c *client) IsDying() bool {
+func (c *client) isDying() bool {
 	return c.dying == true
 }
 
-func (c *client) SendMessage(event string, data interface{}) {
+func (c *client) sendMessage(event string, data interface{}) {
 	if data != nil {
 		c.channelLock.RLock()
 		defer c.channelLock.RUnlock()
 		if !c.dying {
-			c.messageChan <- &Message{Event: event, Data: data}
+			c.messageChan <- &message{event: event, data: data}
 		}
 	}
 }
 
-func (c *client) AddRoom(event string, roomId string) {
+func (c *client) addRoom(event string, roomId string) {
 	c.rooms = append(c.rooms, &roomInfo{
 		id:    roomId,
 		event: event,
 	})
 }
 
-func (c *client) GetRooms() []*roomInfo {
+func (c *client) getRooms() []*roomInfo {
 	return c.rooms
 }
 
@@ -89,7 +80,7 @@ func (c *client) startHeartbeat() {
 		for {
 			select {
 			case <-timer.C:
-				c.SendMessage(PingEvent, nil)
+				c.sendMessage(PingEvent, nil)
 			}
 		}
 	}()

@@ -4,20 +4,12 @@ import (
 	"sync"
 )
 
-type Manager interface {
-	addEventHandler(event string, eventHandler EventHandler)
-	addClient(clientId string, messageChan chan *Message) Client
-	getClient(clientId string) Client
-	removeClient(clientId string)
-	clientBindEventHandler(event string, client Client, context Context) *eventHandler
-}
-
 type manager struct {
 	eventHandlers sync.Map
 	clients       sync.Map
 }
 
-func NewManager() Manager {
+func newManager() *manager {
 	return &manager{}
 }
 
@@ -25,19 +17,19 @@ func (m *manager) addEventHandler(event string, eventHandler EventHandler) {
 	m.eventHandlers.Store(event, eventHandler)
 }
 
-func (m *manager) addClient(clientId string, messageChan chan *Message) Client {
-	client := NewClient(clientId, messageChan)
+func (m *manager) addClient(clientId string, messageChan chan *message) *client {
+	client := newClient(clientId, messageChan)
 	m.clients.Store(clientId, client)
 	return client
 }
 
-func (m *manager) getClient(clientId string) Client {
-	client, ok := m.clients.Load(clientId)
+func (m *manager) getClient(clientId string) *client {
+	v, ok := m.clients.Load(clientId)
 	if !ok {
 		return nil
 	}
 
-	return client.(Client)
+	return v.(*client)
 }
 
 func (m *manager) removeClient(clientId string) {
@@ -46,8 +38,8 @@ func (m *manager) removeClient(clientId string) {
 		return
 	}
 
-	client := v.(Client)
-	rooms := client.GetRooms()
+	client := v.(*client)
+	rooms := client.getRooms()
 	for _, room := range rooms {
 		v, ok := m.eventHandlers.Load(room.event)
 		if !ok {
@@ -56,19 +48,19 @@ func (m *manager) removeClient(clientId string) {
 
 		v.(EventHandler).removeClientFromRoom(room.id, clientId)
 	}
-	client.Close()
+	client.close()
 	m.clients.Delete(clientId)
 }
 
-func (m *manager) clientBindEventHandler(event string, client Client, context Context) *eventHandler {
+func (m *manager) clientBindEventHandler(event string, client *client, context Context) *eventHandler {
 	v, ok := m.eventHandlers.Load(event)
 	if !ok {
 		return nil
 	}
 
 	eventHandler := v.(*eventHandler)
-	roomId := eventHandler.GetRoomId(context)
-	eventHandler.addClientToRoom(roomId, client.GetId())
-	client.AddRoom(event, roomId)
+	roomId := eventHandler.getRoomId(context)
+	eventHandler.addClientToRoom(roomId, client.getId())
+	client.addRoom(event, roomId)
 	return eventHandler
 }
